@@ -52,21 +52,16 @@ class InvoiceController extends Controller
         $discount = (float)($data['discount'] ?? 0);
         $tax      = (float)($data['tax'] ?? 0);
 
-        // Compute line totals & subtotal
+        
         $subtotal = 0;
         foreach ($data['items'] as &$it) {
             $it['line_total'] = (float)$it['quantity'] * (float)$it['unit_price'];
             $subtotal += $it['line_total'];
         }
         $total = max(0, $subtotal - $discount + $tax);
-
-        // All-or-nothing: create invoice + items + stock adjustments in a single transaction
+        
         $invoice = DB::transaction(function () use ($data, $discount, $tax, $subtotal, $total) {
-
-            // If you prefer to deduct only when status becomes 'paid', you can skip stock here
-            // and handle it in updateStatus(). This version deducts immediately on create.
-
-            // Pre-check stock for all items with a product_id
+            
             foreach ($data['items'] as $it) {
                 if (!empty($it['product_id'])) {
                     $product = Product::lockForUpdate()->find($it['product_id']);
@@ -83,7 +78,7 @@ class InvoiceController extends Controller
                 }
             }
 
-            // Create invoice
+            
             $invoice = Invoice::create([
                 'customer_id'   => $data['customer_id'],
                 'invoice_number'=> $data['invoice_number'],
@@ -95,7 +90,7 @@ class InvoiceController extends Controller
                 'status'        => $data['status'] ?? 'unpaid',
             ]);
 
-            // Create items + deduct stock
+            
             foreach ($data['items'] as $it) {
                 $invoice->items()->create([
                     'product_id' => $it['product_id'] ?? null,
@@ -140,12 +135,12 @@ class InvoiceController extends Controller
         $new = $request->status;
         $old = $invoice->status;
 
-        // Adjust stock only when toggling to/from "paid" to keep consistency
+        
         DB::transaction(function () use ($invoice, $old, $new) {
             $invoice->load('items');
 
             if ($old !== 'paid' && $new === 'paid') {
-                // Deduct stock now
+                
                 foreach ($invoice->items as $it) {
                     if ($it->product_id) {
                         $product = Product::lockForUpdate()->find($it->product_id);
